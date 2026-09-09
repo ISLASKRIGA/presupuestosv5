@@ -64,10 +64,12 @@ export default function Dashboard({ data }: Props) {
 
       {/* ── Conclusión ejecutiva ── */}
       <div className="conclusion-banner">
-        <div className="conclusion-title">
-          🎯 CONCLUSIÓN EJECUTIVA DE SUFICIENCIA PRESUPUESTAL (UNIVERSO CONCILIADO)
+        <div className="conclusion-header">
+          <div className="conclusion-title">
+            🎯 CONCLUSIÓN EJECUTIVA DE SUFICIENCIA PRESUPUESTAL (UNIVERSO CONCILIADO)
+          </div>
+          <span className={`conclusion-badge ${conclusionClass}`}>{conclusionLabel}</span>
         </div>
-        <span className={`conclusion-badge ${conclusionClass}`}>{conclusionLabel}</span>
 
         <ul className="conclusion-list">
           <li><strong>Disponible SICOP Real (AT):</strong> <span className="hl-cyan">{fmt$(totalDisp)}</span></li>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { AppData, ContratoMaestro, ControlValidacion, INPerRow, PCOMRow, ResumenEstatus } from './types';
+import { generatePDF } from './utils/generatePDF';
 import { reconcile } from './engine/reconciliation';
 import Dashboard from './components/Dashboard';
 import ContractTable from './components/ContractTable';
@@ -43,6 +44,7 @@ function mapResumen(raw: Record<string, unknown>[]): ResumenEstatus[] {
 export default function App() {
   const [tab, setTab]         = useState<Tab>('dashboard');
   const [appData, setAppData] = useState<AppData | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [pcomMap, setPcomMap] = useState<Map<string, PCOMRow[]>>(new Map());
   const [inperRows, setInperRows] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,38 +116,54 @@ export default function App() {
   const falta = appData.maestra.filter(c => c.estatus === 'FALTA RECURSO');
   const sobra = appData.maestra.filter(c => c.estatus === 'SOBRA RECURSO');
 
+  async function handlePDF() {
+    if (!appData || pdfLoading) return;
+    setPdfLoading(true);
+    try { await generatePDF(appData); } finally { setPdfLoading(false); }
+  }
+
   return (
     <div style={{ minHeight: '100vh' }}>
 
       {/* ── HEADER ── */}
       <header className="header">
-        {/* Brand */}
-        <div className="header-brand">
-          <span className="badge-inper">INPer FINANZAS</span>
-          <div>
-            <div className="header-title">Conciliación Financiera: SICOP vs. INPer</div>
-            <div className="header-sub">Base Maestra Corregida — Visualizador Ejecutivo por Contrato · Corte: {appData.corte}</div>
+        {/* Row 1: Brand + actions */}
+        <div className="header-row1">
+          <div className="header-brand">
+            <span className="badge-inper">INPer FINANZAS</span>
+            <div style={{ minWidth: 0 }}>
+              <div className="header-title">Conciliación Financiera: SICOP vs. INPer</div>
+              <div className="header-sub">Base Maestra Corregida — Visualizador Ejecutivo por Contrato · Corte: {appData.corte}</div>
+            </div>
+          </div>
+          <div className="header-actions">
+            <a
+              href="/Base_Maestra_Actualizada_SICOP_INPer_09SEP26.xlsx"
+              download="Base_Maestra_Actualizada_SICOP_INPer_09SEP26.xlsx"
+              className="btn btn-green"
+            >
+              📋 Base Maestra (.xlsx)
+            </a>
+            <button
+              className="btn btn-red"
+              onClick={handlePDF}
+              disabled={pdfLoading}
+              style={pdfLoading ? { opacity: 0.6, cursor: 'wait' } : {}}
+            >
+              {pdfLoading ? '⏳ Generando PDF…' : '📄 PDF Membretado'}
+            </button>
           </div>
         </div>
-
-        {/* Search */}
+        {/* Row 2: Search */}
         <input
           className="search-bar"
           placeholder="🔍 Buscar por contrato, proveedor, folio, clave CNIS..."
           onChange={() => {}}
         />
-
-        {/* Actions */}
-        <div className="header-actions">
-          <button className="btn btn-green" onClick={() => setTab('nuevo_corte')}>📋 Descargar Base Maestra (.xlsx)</button>
-          <button className="btn btn-purple" onClick={() => setTab('nuevo_corte')}>📄 Descargar Reporte Ejecutivo (.xlsx)</button>
-          <button className="btn btn-red" onClick={() => setTab('control')}>📄 Descargar PDF Membretado</button>
-          <button className="btn btn-red" style={{ background: '#b91c1c' }} onClick={() => setTab('control')}>⚠️ Errores</button>
-        </div>
       </header>
 
       {/* ── TABS ── */}
-      <div className="tabs-row" style={{ paddingTop: 16 }}>
+      <div className="tabs-row">
         <button className={`tab-item ${tab === 'dashboard' ? 'active' : ''}`} onClick={() => setTab('dashboard')}>
           📋 Tablero Ejecutivo (Base Maestra Conciliada)
         </button>
