@@ -8,81 +8,61 @@ interface Props {
 
 export default function FileUpload({ onLoad }: Props) {
   const inperRef = useRef<File | null>(null);
-  const pcomRef = useRef<File | null>(null);
-
-  async function readXlsx(file: File) {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    return wb;
-  }
+  const pcomRef  = useRef<File | null>(null);
 
   async function handleProcess() {
-    if (!inperRef.current || !pcomRef.current) {
-      alert('Selecciona ambos archivos primero');
-      return;
-    }
+    if (!inperRef.current || !pcomRef.current) { alert('Selecciona ambos archivos'); return; }
     try {
-      const [wbInper, wbPcom] = await Promise.all([
-        readXlsx(inperRef.current),
-        readXlsx(pcomRef.current),
-      ]);
-
-      // INPer: first sheet
-      const wsInper = wbInper.Sheets[wbInper.SheetNames[0]];
-      const inperData = XLSX.utils.sheet_to_json<INPerRow>(wsInper);
-
-      // PCOM: first sheet
-      const wsPcom = wbPcom.Sheets[wbPcom.SheetNames[0]];
-      const pcomData = XLSX.utils.sheet_to_json<PCOMRow>(wsPcom);
-
-      const now = new Date();
-      const corte = now.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
-
+      const [a, b] = await Promise.all([inperRef.current.arrayBuffer(), pcomRef.current.arrayBuffer()]);
+      const wbI = XLSX.read(a, { type: 'array' });
+      const wbP = XLSX.read(b, { type: 'array' });
+      const inperData = XLSX.utils.sheet_to_json<INPerRow>(wbI.Sheets[wbI.SheetNames[0]]);
+      const pcomData  = XLSX.utils.sheet_to_json<PCOMRow>(wbP.Sheets[wbP.SheetNames[0]]);
+      const corte = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
       onLoad(inperData, pcomData, corte);
-    } catch (e) {
-      alert('Error al leer los archivos: ' + String(e));
-    }
+    } catch (e) { alert('Error: ' + String(e)); }
   }
 
+  const inputStyle: React.CSSProperties = {
+    background: 'var(--bg-card2)', border: '1px solid var(--border2)', borderRadius: 8,
+    padding: '8px 12px', color: 'var(--white)', fontFamily: 'inherit', fontSize: '0.8rem', width: '100%',
+  };
+
   return (
-    <div className="card p-6 space-y-5">
-      <h3 className="font-semibold text-gray-700">Cargar nuevo corte</h3>
-      <p className="text-xs text-gray-500">
-        Sube el archivo INPer (base actual de contratos) y el archivo PCOM/SICOP vigente.
-        El sistema aplicará la metodología de conciliación automáticamente.
+    <div className="fade-up gap-y section-pad">
+      <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--white)' }}>📂 Cargar nuevo corte</h2>
+      <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+        Sube la base INPer vigente y el archivo PCOM/SICOP vigente. La metodología se aplica automáticamente.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Base INPer (.xlsx)</label>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={e => { inperRef.current = e.target.files?.[0] ?? null; }}
-            className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 720 }}>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderLeft: '3px solid var(--cyan)', borderRadius: 10, padding: 18 }}>
+          <label style={{ display: 'block', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 10 }}>
+            📋 Base INPer (.xlsx)
+          </label>
+          <input type="file" accept=".xlsx,.xls" style={inputStyle} onChange={e => { inperRef.current = e.target.files?.[0] ?? null; }} />
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">PCOM / SICOP (.xlsx)</label>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={e => { pcomRef.current = e.target.files?.[0] ?? null; }}
-            className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
-          />
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderLeft: '3px solid var(--purple)', borderRadius: 10, padding: 18 }}>
+          <label style={{ display: 'block', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--purple)', marginBottom: 10 }}>
+            📊 PCOM / SICOP (.xlsx)
+          </label>
+          <input type="file" accept=".xlsx,.xls" style={inputStyle} onChange={e => { pcomRef.current = e.target.files?.[0] ?? null; }} />
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <button
-          onClick={handleProcess}
-          className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-        >
-          Procesar conciliación
-        </button>
-        <span className="text-xs text-gray-400 self-center">
-          Los archivos son procesados localmente, sin enviarse a ningún servidor.
-        </span>
+      <button onClick={handleProcess} className="btn btn-blue" style={{ alignSelf: 'flex-start', padding: '10px 24px', fontSize: '0.85rem' }}>
+        ⚡ Procesar conciliación
+      </button>
+
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderLeft: '3px solid var(--blue)', borderRadius: 10, padding: 18, maxWidth: 720 }}>
+        <p style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--blue)', textTransform: 'uppercase', marginBottom: 10 }}>📌 Metodología aplicada</p>
+        <ul style={{ color: 'var(--muted)', fontSize: '0.8rem', lineHeight: 2, paddingLeft: 20 }}>
+          <li>Unidad de análisis: CONTRATO (no partida)</li>
+          <li>Vinculación: exacta → normalizada (CM1/CM2) → ambigua/sin vínculo</li>
+          <li>No se suman importes repetidos por partida</li>
+          <li>No se fuerza SICOP = 0 para contratos no vinculados</li>
+          <li>Saldo = Disponible SICOP − Estimación INPer por ejercer</li>
+        </ul>
       </div>
     </div>
   );

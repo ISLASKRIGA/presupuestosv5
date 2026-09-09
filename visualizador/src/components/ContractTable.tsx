@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { ContratoMaestro, PCOMRow, Estatus } from '../types';
-import { fmt$, fmtPct } from '../utils/format';
+import { fmt$, fmtPct, saldoClass } from '../utils/format';
 import StatusBadge from './StatusBadge';
 
 interface Props {
@@ -8,196 +8,221 @@ interface Props {
   pcomPorContrato: Map<string, PCOMRow[]>;
   filterEstatus?: Estatus;
   title?: string;
+  inperRows?: Record<string, unknown>[];
 }
 
 const PAGE_SIZE = 50;
 
-export default function ContractTable({ contracts, pcomPorContrato, filterEstatus, title }: Props) {
-  const [search, setSearch] = useState('');
-  const [estatusFilter, setEstatusFilter] = useState<string>(filterEstatus ?? 'TODOS');
-  const [sortField, setSortField] = useState<keyof ContratoMaestro>('saldo');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [page, setPage] = useState(0);
-  const [expanded, setExpanded] = useState<string | null>(null);
+function VinculoBadge({ tipo }: { tipo: string }) {
+  const cls = tipo === 'EXACTA' ? 'vb-exacta' : tipo === 'NORMALIZADA' ? 'vb-normalizada' : tipo === 'AMBIGUA' ? 'vb-ambigua' : 'vb-sin';
+  return <span className={`vinculo-badge ${cls}`}>{tipo}</span>;
+}
 
-  const estatuses = ['TODOS', 'EQUILIBRADO', 'FALTA RECURSO', 'SOBRA RECURSO', 'PENDIENTE VINCULACIÓN SICOP'];
+type FilterKey = 'TODOS' | Estatus;
+
+export default function ContractTable({ contracts, pcomPorContrato, filterEstatus, title, inperRows }: Props) {
+  const [search, setSearch]       = useState('');
+  const [filter, setFilter]       = useState<FilterKey>(filterEstatus ?? 'TODOS');
+  const [sortField, setSortField] = useState<keyof ContratoMaestro>('saldo');
+  const [sortDir, setSortDir]     = useState<'asc' | 'desc'>('asc');
+  const [page, setPage]           = useState(0);
+  const [expanded, setExpanded]   = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let rows = contracts;
-    if (estatusFilter !== 'TODOS') rows = rows.filter(c => c.estatus === estatusFilter);
+    if (filter !== 'TODOS') rows = rows.filter(c => c.estatus === filter);
     if (search) {
       const q = search.toLowerCase();
       rows = rows.filter(c =>
         c.contrato.toLowerCase().includes(q) ||
-        c.contratoPCOM.toLowerCase().includes(q) ||
-        c.estatus.toLowerCase().includes(q)
+        c.contratoPCOM.toLowerCase().includes(q)
       );
     }
-    rows = [...rows].sort((a, b) => {
-      const av = a[sortField] ?? 0;
-      const bv = b[sortField] ?? 0;
+    return [...rows].sort((a, b) => {
+      const av = a[sortField] ?? 0, bv = b[sortField] ?? 0;
       if (av < bv) return sortDir === 'asc' ? -1 : 1;
-      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      if (av > bv) return sortDir === 'asc' ?  1 : -1;
       return 0;
     });
-    return rows;
-  }, [contracts, estatusFilter, search, sortField, sortDir]);
+  }, [contracts, filter, search, sortField, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  function sort(field: keyof ContratoMaestro) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
+  function sort(f: keyof ContratoMaestro) {
+    if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(f); setSortDir('asc'); }
     setPage(0);
   }
 
-  function SortArrow({ field }: { field: keyof ContratoMaestro }) {
-    if (sortField !== field) return <span className="text-gray-300 ml-1">↕</span>;
-    return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  function Arr({ f }: { f: keyof ContratoMaestro }) {
+    if (sortField !== f) return <span style={{ opacity: 0.3, marginLeft: 3, fontSize: '0.65rem' }}>↕</span>;
+    return <span style={{ marginLeft: 3, fontSize: '0.65rem' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
   }
 
-  return (
-    <div className="space-y-4">
-      {title && <h2 className="text-lg font-bold text-gray-800">{title}</h2>}
+  // Provider lookup from INPer rows
+  function getProvider(contrato: string): { nombre: string; rfc: string } | null {
+    if (!inperRows) return null;
+    const row = inperRows.find(r => String(r['No. de contrato'] ?? '').trim() === contrato || String(r['Contrato'] ?? '').trim() === contrato) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return { nombre: String(row['Proveedor'] ?? ''), rfc: String(row['RFC'] ?? '') };
+  }
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
+  // Count badge for header
+  const countByStatus = useMemo(() => {
+    const m: Record<string, number> = {};
+    contracts.forEach(c => { m[c.estatus] = (m[c.estatus] || 0) + 1; });
+    return m;
+  }, [contracts]);
+
+  return (
+    <div className="fade-up">
+      {title && (
+        <div style={{ padding: '0 20px 14px' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--white)' }}>{title}</h2>
+        </div>
+      )}
+
+      {/* Filter row */}
+      <div className="filter-row">
+        <span className="filter-label">Filtrar por Estatus:</span>
+        {!filterEstatus && (
+          <>
+            <button className={`filter-btn ${filter === 'TODOS' ? 'active' : ''}`} onClick={() => { setFilter('TODOS'); setPage(0); }}>Todos</button>
+            <button className={`filter-btn ${filter === 'SOBRA RECURSO' ? 'active' : ''}`} onClick={() => { setFilter('SOBRA RECURSO'); setPage(0); }}>
+              <span className="filter-dot dot-green" /> Sobra Recurso
+            </button>
+            <button className={`filter-btn ${filter === 'EQUILIBRADO' ? 'active' : ''}`} onClick={() => { setFilter('EQUILIBRADO'); setPage(0); }}>
+              <span className="filter-dot dot-yellow" /> Equilibrado
+            </button>
+            <button className={`filter-btn ${filter === 'FALTA RECURSO' ? 'active' : ''}`} onClick={() => { setFilter('FALTA RECURSO'); setPage(0); }}>
+              <span className="filter-dot dot-red" /> Falta Recurso
+            </button>
+          </>
+        )}
         <input
           type="text"
-          placeholder="Buscar contrato..."
+          placeholder="🔍 Buscar contrato..."
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(0); }}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border2)', borderRadius: 8, padding: '5px 12px', color: 'var(--white)', fontFamily: 'inherit', fontSize: '0.78rem', outline: 'none', marginLeft: 8, width: 200 }}
         />
-        {!filterEstatus && (
-          <select
-            value={estatusFilter}
-            onChange={e => { setEstatusFilter(e.target.value); setPage(0); }}
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-          >
-            {estatuses.map(e => <option key={e}>{e}</option>)}
-          </select>
-        )}
-        <span className="text-xs text-gray-500 ml-auto">
-          {filtered.length} contratos{search || estatusFilter !== 'TODOS' ? ' (filtrados)' : ''}
+        <span className="filter-count" style={{ marginLeft: 'auto' }}>
+          Mostrando <strong>{filtered.length}</strong> contratos{' '}
+          {!filterEstatus && <span style={{ color: 'var(--muted)', fontSize: '0.72rem' }}>(haz clic en cualquier fila para ver el desglose)</span>}
         </span>
       </div>
 
       {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="table-header">
-                <th className="px-3 py-3 text-left cursor-pointer select-none" onClick={() => sort('contrato')}>
-                  Contrato <SortArrow field="contrato" />
-                </th>
-                <th className="px-3 py-3 text-left">Vínculo PCOM</th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('comprometidoSICOP')}>
-                  Comprometido SICOP <SortArrow field="comprometidoSICOP" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('modificadoSICOP')}>
-                  Modificado SICOP <SortArrow field="modificadoSICOP" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('ejercidoSICOP')}>
-                  Ejercido/Pagado SICOP <SortArrow field="ejercidoSICOP" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('disponibleSICOP')}>
-                  Disponible SICOP <SortArrow field="disponibleSICOP" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('modificadoINPer')}>
-                  Modif. INPer <SortArrow field="modificadoINPer" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('pagadoINPer')}>
-                  Pagado INPer <SortArrow field="pagadoINPer" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('estimacionINPer')}>
-                  Estimación INPer <SortArrow field="estimacionINPer" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('saldo')}>
-                  Saldo <SortArrow field="saldo" />
-                </th>
-                <th className="px-3 py-3 text-center cursor-pointer" onClick={() => sort('estatus')}>
-                  Estatus <SortArrow field="estatus" />
-                </th>
-                <th className="px-3 py-3 text-right cursor-pointer" onClick={() => sort('coberturaPorc')}>
-                  Cobertura <SortArrow field="coberturaPorc" />
-                </th>
-                <th className="px-3 py-3 text-center">Detalle</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {paged.map(c => (
+      <div className="data-table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ width: 36 }} />
+              <th onClick={() => sort('contrato')}>NO. CONTRATO <Arr f="contrato" /></th>
+              <th>PROVEEDOR</th>
+              <th className="num">FOLIOS</th>
+              <th className="num" onClick={() => sort('modificadoSICOP')}>MODIF. SICOP <Arr f="modificadoSICOP" /></th>
+              <th className="num" onClick={() => sort('modificadoINPer')}>MODIF. INPER <Arr f="modificadoINPer" /></th>
+              <th className="num">DIF. MODIF.</th>
+              <th className="num" onClick={() => sort('ejercidoSICOP')}>PAGADO SICOP <Arr f="ejercidoSICOP" /></th>
+              <th className="num" onClick={() => sort('pagadoINPer')}>PAGADO INPER <Arr f="pagadoINPer" /></th>
+              <th className="num cyan" onClick={() => sort('disponibleSICOP')}>DISPONIBLE SICOP (AT) <Arr f="disponibleSICOP" /></th>
+              <th className="num purple" onClick={() => sort('estimacionINPer')}>ESTIMACIÓN INPER (AV) <Arr f="estimacionINPer" /></th>
+              <th className="num" onClick={() => sort('saldo')}>SALDO SUFICIENCIA <Arr f="saldo" /></th>
+              <th>ESTATUS</th>
+              <th className="num" onClick={() => sort('coberturaPorc')}>COB. % <Arr f="coberturaPorc" /></th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.map(c => {
+              const isOpen = expanded === c.contrato;
+              const provider = getProvider(c.contrato);
+              const pcomRows = pcomPorContrato.get(c.contrato) ?? [];
+              const difModif = c.modificadoSICOP - c.modificadoINPer;
+
+              return (
                 <>
-                  <tr key={c.contrato} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-2 font-mono font-semibold text-blue-800">{c.contrato}</td>
-                    <td className="px-3 py-2">
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${c.tipoVinculacion === 'EXACTA' ? 'bg-green-100 text-green-700' : c.tipoVinculacion === 'NORMALIZADA' ? 'bg-blue-100 text-blue-700' : c.tipoVinculacion === 'AMBIGUA' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {c.tipoVinculacion}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 num">{fmt$(c.comprometidoSICOP, true)}</td>
-                    <td className="px-3 py-2 num">{fmt$(c.modificadoSICOP, true)}</td>
-                    <td className="px-3 py-2 num">{fmt$(c.ejercidoSICOP, true)}</td>
-                    <td className="px-3 py-2 num font-semibold">{c.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? '—' : fmt$(c.disponibleSICOP, true)}</td>
-                    <td className="px-3 py-2 num">{fmt$(c.modificadoINPer, true)}</td>
-                    <td className="px-3 py-2 num">{fmt$(c.pagadoINPer, true)}</td>
-                    <td className="px-3 py-2 num font-semibold">{fmt$(c.estimacionINPer, true)}</td>
-                    <td className={`px-3 py-2 num font-bold ${c.saldo < 0 ? 'text-red-600' : c.saldo > 0 ? 'text-green-700' : 'text-gray-400'}`}>
-                      {c.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? '—' : fmt$(c.saldo, true)}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <StatusBadge estatus={c.estatus} />
-                    </td>
-                    <td className="px-3 py-2 num">
-                      {c.coberturaPorc !== null ? fmtPct(c.coberturaPorc) : 'N/D'}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={() => setExpanded(expanded === c.contrato ? null : c.contrato)}
-                        className="text-blue-600 hover:text-blue-800 font-semibold"
-                      >
-                        {expanded === c.contrato ? '▲' : '▼'}
+                  <tr
+                    key={c.contrato}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setExpanded(isOpen ? null : c.contrato)}
+                  >
+                    <td>
+                      <button className={`expand-btn ${isOpen ? 'open' : ''}`} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : c.contrato); }}>
+                        {isOpen ? '▼' : '▶'}
                       </button>
                     </td>
+                    <td className="white font-mono" style={{ fontWeight: 800, fontSize: '0.82rem' }}>{c.contrato}</td>
+                    <td>
+                      {provider ? (
+                        <>
+                          <div className="provider-name">{provider.nombre || '—'}</div>
+                          <div className="provider-rfc">RFC: {provider.rfc || '—'}</div>
+                        </>
+                      ) : (
+                        <span style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>
+                          <VinculoBadge tipo={c.tipoVinculacion} />
+                        </span>
+                      )}
+                      {pcomRows.length > 0 && (
+                        <div className="claves-badge" style={{ marginTop: 4, display: 'inline-flex' }}>
+                          📋 {pcomRows.length} folios ▶
+                        </div>
+                      )}
+                    </td>
+                    <td className="num white" style={{ fontWeight: 700 }}>{c.renglonesPCOM || '—'}</td>
+                    <td className="num">{fmt$(c.modificadoSICOP)}</td>
+                    <td className="num">{fmt$(c.modificadoINPer)}</td>
+                    <td className={`num ${Math.abs(difModif) < 0.05 ? '' : difModif < 0 ? 'red' : 'green'}`}>{fmt$(difModif)}</td>
+                    <td className="num">{fmt$(c.ejercidoSICOP)}</td>
+                    <td className="num">{fmt$(c.pagadoINPer)}</td>
+                    <td className="num cyan">{c.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? <span style={{ color: 'var(--yellow)' }}>N/D</span> : fmt$(c.disponibleSICOP)}</td>
+                    <td className="num purple">{fmt$(c.estimacionINPer)}</td>
+                    <td className={`num ${c.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? '' : saldoClass(c.saldo)}`} style={{ fontWeight: 800 }}>
+                      {c.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? <span style={{ color: 'var(--muted)' }}>—</span> : fmt$(c.saldo)}
+                    </td>
+                    <td><StatusBadge estatus={c.estatus} /></td>
+                    <td className="num" style={{ color: 'var(--muted)' }}>
+                      {c.coberturaPorc !== null ? fmtPct(c.coberturaPorc) : 'N/D'}
+                    </td>
                   </tr>
-                  {expanded === c.contrato && (
-                    <tr key={`${c.contrato}-detail`}>
-                      <td colSpan={13} className="bg-slate-50 px-6 py-4">
-                        <PCOMDetail
-                          contrato={c.contrato}
-                          pcomRows={pcomPorContrato.get(c.contrato) ?? []}
-                        />
+                  {isOpen && (
+                    <tr key={`${c.contrato}-det`}>
+                      <td colSpan={14} style={{ padding: 0 }}>
+                        <PCOMDetail contrato={c.contrato} pcomRows={pcomRows} />
                       </td>
                     </tr>
                   )}
                 </>
-              ))}
-              {paged.length === 0 && (
-                <tr>
-                  <td colSpan={13} className="px-4 py-8 text-center text-gray-400">Sin resultados</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              );
+            })}
+            {paged.length === 0 && (
+              <tr>
+                <td colSpan={14} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)', fontWeight: 600 }}>Sin resultados</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
-          <button
-            disabled={page === 0}
-            onClick={() => setPage(p => p - 1)}
-            className="px-3 py-1.5 rounded border disabled:opacity-40 hover:bg-gray-100"
-          >← Anterior</button>
-          <span className="text-gray-500">Página {page + 1} de {totalPages}</span>
-          <button
-            disabled={page >= totalPages - 1}
-            onClick={() => setPage(p => p + 1)}
-            className="px-3 py-1.5 rounded border disabled:opacity-40 hover:bg-gray-100"
-          >Siguiente →</button>
+        <div className="pagination">
+          <button className="page-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Anterior</button>
+          <span className="page-info">Página {page + 1} de {totalPages} · {filtered.length} contratos</span>
+          <button className="page-btn" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Siguiente →</button>
+        </div>
+      )}
+
+      {/* Status summary badges */}
+      {!filterEstatus && (
+        <div style={{ display: 'flex', gap: 12, padding: '8px 20px 20px', flexWrap: 'wrap' }}>
+          {Object.entries(countByStatus).map(([e, n]) => (
+            <span key={e} className={`status-pill ${e === 'SOBRA RECURSO' ? 'pill-green' : e === 'FALTA RECURSO' ? 'pill-red' : e === 'EQUILIBRADO' ? 'pill-yellow' : 'pill-gray'}`} style={{ cursor: 'pointer' }} onClick={() => { setFilter(e as FilterKey); setPage(0); }}>
+              {e}: {n}
+            </span>
+          ))}
         </div>
       )}
     </div>
@@ -205,55 +230,49 @@ export default function ContractTable({ contracts, pcomPorContrato, filterEstatu
 }
 
 function PCOMDetail({ contrato, pcomRows }: { contrato: string; pcomRows: PCOMRow[] }) {
-  if (pcomRows.length === 0) {
-    return (
-      <div className="text-sm text-amber-600">
-        <strong>{contrato}</strong> — Sin líneas PCOM vinculadas (PENDIENTE VINCULACIÓN SICOP)
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <p className="text-xs font-semibold text-gray-500 mb-2">
-        Líneas PCOM vinculadas al contrato <strong className="font-mono text-blue-700">{contrato}</strong>
-      </p>
-      <div className="overflow-x-auto">
-        <table className="text-xs w-full">
-          <thead>
-            <tr className="text-gray-500 border-b">
-              <th className="pr-4 py-1 text-left">NO_COMPROMISO</th>
-              <th className="pr-4 py-1 text-left">CTOEXT</th>
-              <th className="pr-4 py-1 text-right">Comprometido</th>
-              <th className="pr-4 py-1 text-right">Modificado</th>
-              <th className="pr-4 py-1 text-right">Ejercido</th>
-              <th className="pr-4 py-1 text-right">Disponible</th>
-              <th className="pr-4 py-1 text-left">Proveedor</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {pcomRows.map((p, i) => (
-              <tr key={i} className="font-mono">
-                <td className="pr-4 py-1">{p.NO_COMPROMISO}</td>
-                <td className="pr-4 py-1">{p.CTOEXT}</td>
-                <td className="pr-4 py-1 text-right">{fmt$(p.COMPROMISO as number, true)}</td>
-                <td className="pr-4 py-1 text-right">{fmt$(p.MODIFICADO as number, true)}</td>
-                <td className="pr-4 py-1 text-right">{fmt$(p.EJERCIDO as number, true)}</td>
-                <td className="pr-4 py-1 text-right font-bold text-blue-700">{fmt$(p.DISPONIBLE as number, true)}</td>
-                <td className="pr-4 py-1 font-sans truncate max-w-xs">{(p.NOMBRE_PROVEEDOR as string) ?? '—'}</td>
+    <div className="pcom-detail">
+      <div className="pcom-detail-title">Desglose PCOM → Contrato <span style={{ color: 'var(--cyan)' }}>{contrato}</span></div>
+      {pcomRows.length === 0 ? (
+        <p style={{ color: 'var(--yellow)', fontSize: '0.8rem', fontWeight: 600 }}>⚠️ Sin líneas PCOM vinculadas — PENDIENTE VINCULACIÓN SICOP</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table" style={{ fontSize: '0.76rem' }}>
+            <thead>
+              <tr>
+                <th>NO_COMPROMISO</th>
+                <th>CTOEXT</th>
+                <th className="num">Comprometido</th>
+                <th className="num">Modificado</th>
+                <th className="num">Ejercido</th>
+                <th className="num cyan">Disponible</th>
+                <th>Proveedor</th>
               </tr>
-            ))}
-            <tr className="font-bold border-t-2 border-gray-400">
-              <td colSpan={2} className="pr-4 py-1 font-sans">TOTAL</td>
-              <td className="pr-4 py-1 text-right">{fmt$(pcomRows.reduce((s, p) => s + (p.COMPROMISO as number || 0), 0), true)}</td>
-              <td className="pr-4 py-1 text-right">{fmt$(pcomRows.reduce((s, p) => s + (p.MODIFICADO as number || 0), 0), true)}</td>
-              <td className="pr-4 py-1 text-right">{fmt$(pcomRows.reduce((s, p) => s + (p.EJERCIDO as number || 0), 0), true)}</td>
-              <td className="pr-4 py-1 text-right text-blue-700">{fmt$(pcomRows.reduce((s, p) => s + (p.DISPONIBLE as number || 0), 0), true)}</td>
-              <td></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {pcomRows.map((p, i) => (
+                <tr key={i}>
+                  <td className="font-mono" style={{ color: 'var(--muted)' }}>{String(p.NO_COMPROMISO)}</td>
+                  <td className="font-mono white">{String(p.CTOEXT)}</td>
+                  <td className="num">{fmt$(p.COMPROMISO as number)}</td>
+                  <td className="num">{fmt$(p.MODIFICADO as number)}</td>
+                  <td className="num">{fmt$(p.EJERCIDO as number)}</td>
+                  <td className="num cyan">{fmt$(p.DISPONIBLE as number)}</td>
+                  <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(p.NOMBRE_PROVEEDOR ?? '—')}</td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: '2px solid var(--border2)', fontWeight: 800 }}>
+                <td colSpan={2} style={{ color: 'var(--white)' }}>TOTAL ({pcomRows.length} líneas)</td>
+                <td className="num">{fmt$(pcomRows.reduce((s, p) => s + (p.COMPROMISO as number || 0), 0))}</td>
+                <td className="num">{fmt$(pcomRows.reduce((s, p) => s + (p.MODIFICADO as number || 0), 0))}</td>
+                <td className="num">{fmt$(pcomRows.reduce((s, p) => s + (p.EJERCIDO as number || 0), 0))}</td>
+                <td className="num cyan">{fmt$(pcomRows.reduce((s, p) => s + (p.DISPONIBLE as number || 0), 0))}</td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

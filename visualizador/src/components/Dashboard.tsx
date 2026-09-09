@@ -1,212 +1,196 @@
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
+  BarChart as HBarChart, Bar as HBar,
 } from 'recharts';
 import type { AppData } from '../types';
 import { fmt$ } from '../utils/format';
 import KPICard from './KPICard';
-import StatusBadge from './StatusBadge';
-
-const COLORS: Record<string, string> = {
-  'EQUILIBRADO': '#16a34a',
-  'FALTA RECURSO': '#dc2626',
-  'SOBRA RECURSO': '#2563eb',
-  'PENDIENTE VINCULACIÓN SICOP': '#d97706',
-};
 
 interface Props { data: AppData }
+
+const TOOLTIP_STYLE = {
+  background: '#111827', border: '1px solid #1e2d45', borderRadius: 8,
+  fontFamily: 'Inter, sans-serif', fontSize: '0.8rem', color: '#f0f4f8',
+};
 
 export default function Dashboard({ data }: Props) {
   const { maestra, resumen } = data;
 
-  const vinculados = maestra.filter(c => c.estatus !== 'PENDIENTE VINCULACIÓN SICOP');
-  const pendientes = maestra.filter(c => c.estatus === 'PENDIENTE VINCULACIÓN SICOP');
+  const vinc    = maestra.filter(c => c.estatus !== 'PENDIENTE VINCULACIÓN SICOP');
+  const falta   = maestra.filter(c => c.estatus === 'FALTA RECURSO');
+  const sobra   = maestra.filter(c => c.estatus === 'SOBRA RECURSO');
+  const equil   = maestra.filter(c => c.estatus === 'EQUILIBRADO');
+  const pend    = maestra.filter(c => c.estatus === 'PENDIENTE VINCULACIÓN SICOP');
 
-  const totalDispVinculado = vinculados.reduce((s, c) => s + c.disponibleSICOP, 0);
-  const totalEstimVinculada = vinculados.reduce((s, c) => s + c.estimacionINPer, 0);
-  const saldoVinculado = totalDispVinculado - totalEstimVinculada;
-  const totalEstimPendiente = pendientes.reduce((s, c) => s + c.estimacionINPer, 0);
+  const totalDisp  = vinc.reduce((s, c) => s + c.disponibleSICOP, 0);
+  const totalEstim = vinc.reduce((s, c) => s + c.estimacionINPer, 0);
+  const saldo      = totalDisp - totalEstim;
 
-  const pieData = resumen.map(r => ({ name: r.estatus, value: r.contratos }));
+  const faltaSum = falta.reduce((s, c) => s + c.saldo, 0);
+  const sobraSum = sobra.reduce((s, c) => s + c.saldo, 0);
+  const pendEstim= pend.reduce((s, c) => s + c.estimacionINPer, 0);
 
-  const barData = resumen
+  // Bar chart data
+  const barData = [
+    { name: 'Disponible SICOP (AT)', value: totalDisp },
+    { name: 'Estimación INPer (AV)', value: totalEstim },
+  ];
+
+  // Donut data
+  const pieData = resumen
     .filter(r => r.estatus !== 'PENDIENTE VINCULACIÓN SICOP')
     .map(r => ({
-      name: r.estatus.replace(' RECURSO', '').replace('EQUILIBRADO', 'EQUIL.'),
-      disponible: r.disponibleSICOP,
-      estimacion: r.estimacionINPer,
+      name: r.estatus === 'EQUILIBRADO' ? 'Equilibrado' : r.estatus === 'SOBRA RECURSO' ? 'Sobra Recurso' : 'Falta Recurso',
+      value: r.contratos,
     }));
+  const PIE_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
 
-  const topFalta = [...maestra]
-    .filter(c => c.estatus === 'FALTA RECURSO')
-    .sort((a, b) => a.saldo - b.saldo)
-    .slice(0, 8);
+  // Top rankings
+  const topFalta = [...falta].sort((a, b) => a.saldo - b.saldo).slice(0, 5);
 
-  const topSobra = [...maestra]
-    .filter(c => c.estatus === 'SOBRA RECURSO')
-    .sort((a, b) => b.saldo - a.saldo)
-    .slice(0, 8);
+  // Conclusion estatus
+  const conclusionClass = saldo < 0 ? 'falta' : saldo > 0 ? 'sobra' : 'equil';
+  const conclusionLabel = saldo < 0
+    ? `FALTA RECURSO POR ${fmt$(Math.abs(saldo))}`
+    : saldo > 0
+    ? `SOBRA RECURSO POR ${fmt$(saldo)}`
+    : 'EQUILIBRADO';
+
+  const mayorFaltante = topFalta[0];
 
   return (
-    <div className="space-y-6">
-      {/* Corte info */}
-      <div className="flex items-center gap-3">
-        <div className="h-1 flex-1 bg-gradient-to-r from-blue-800 to-teal-500 rounded-full" />
-        <span className="text-sm font-semibold text-gray-500">CORTE: {data.corte}</span>
-        <div className="h-1 flex-1 bg-gradient-to-r from-teal-500 to-blue-800 rounded-full" />
+    <div className="fade-up gap-y">
+
+      {/* ── Conclusión ejecutiva ── */}
+      <div className="conclusion-banner">
+        <div className="conclusion-title">
+          🎯 CONCLUSIÓN EJECUTIVA DE SUFICIENCIA PRESUPUESTAL (UNIVERSO CONCILIADO)
+        </div>
+        <span className={`conclusion-badge ${conclusionClass}`}>{conclusionLabel}</span>
+
+        <ul className="conclusion-list">
+          <li><strong>Disponible SICOP Real (AT):</strong> <span className="hl-cyan">{fmt$(totalDisp)}</span></li>
+          <li><strong>Estimación INPer Conciliado (AV):</strong> <span className="hl-purple">{fmt$(totalEstim)}</span></li>
+          <li><strong>Saldo Real de Suficiencia:</strong> <span className={saldo < 0 ? 'hl-red' : 'hl-green'}>{fmt$(saldo)}</span></li>
+          <li><strong>Conclusión Financiera:</strong>{' '}
+            <span className={saldo < 0 ? 'hl-red' : 'hl-green'}>
+              {saldo < 0 ? `FALTA RECURSO POR ${fmt$(Math.abs(saldo))}.` : `SOBRA RECURSO POR ${fmt$(saldo)}.`}
+            </span>
+          </li>
+        </ul>
+
+        <p className="conclusion-note">
+          Distribución de Contratos:{' '}
+          <strong className="hl-green">{sobra.length} contratos</strong> presentan Recurso Excedente ({fmt$(sobraSum)}),{' '}
+          <strong className="hl-yellow">{equil.length} contratos</strong> se encuentran Equilibrados, y{' '}
+          <strong className="hl-red">{falta.length} contratos</strong> presentan Insuficiencia Presupuestal ({fmt$(faltaSum)}).
+          {mayorFaltante && (
+            <> El mayor faltante individual corresponde al contrato{' '}
+              <strong>{mayorFaltante.contrato}</strong> por{' '}
+              <strong className="hl-red">{fmt$(mayorFaltante.saldo)}</strong>.
+            </>
+          )}
+          {pend.length > 0 && (
+            <> Adicionalmente, <strong className="hl-yellow">{pend.length} contratos</strong> están pendientes de vinculación SICOP con exposición INPer de <strong className="hl-yellow">{fmt$(pendEstim)}</strong>.
+            </>
+          )}
+        </p>
       </div>
 
-      {/* Top KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="Total contratos INPer" value={maestra.length.toLocaleString()} />
-        <KPICard label="Vinculados PCOM" value={vinculados.length.toLocaleString()} color="text-blue-700" />
-        <KPICard label="Pendientes vinculación" value={pendientes.length.toLocaleString()} color="text-amber-600" />
-        <KPICard
-          label="Saldo vinculado"
-          value={fmt$(saldoVinculado, true)}
-          sub="Disponible SICOP − Estimación INPer"
-          color={saldoVinculado >= 0 ? 'text-green-700' : 'text-red-700'}
-        />
+      {/* ── KPI Cards ── */}
+      <div className="kpi-grid">
+        <KPICard label="Disponible SICOP Real" value={fmt$(totalDisp)} sub="Universo Conciliado (AT)" valueColor="cyan" borderColor="cyan" />
+        <KPICard label="Estimación INPer por ejercer" value={fmt$(totalEstim)} sub="Universo Conciliado (AV)" valueColor="purple" borderColor="purple" />
+        <KPICard label="Saldo Real de Suficiencia" value={fmt$(saldo)} sub={saldo < 0 ? 'FALTA RECURSO' : 'SOBRA RECURSO'} valueColor={saldo < 0 ? 'red' : 'green'} borderColor={saldo < 0 ? 'red' : 'green'} />
+        <KPICard label="Sobrante Total Acumulado" value={fmt$(sobraSum, true)} sub={`${sobra.length} Contratos con excedente`} valueColor="green" borderColor="green" />
+        <KPICard label="Faltante Total Acumulado" value={fmt$(faltaSum, true)} sub={`${falta.length} Contratos con insuficiencia`} valueColor="red" borderColor="red" />
+        <KPICard label="Universo Conciliado" value={String(vinc.length)} sub={`${vinc.length} Compromisos Conciliados`} valueColor="white" borderColor="blue" />
+        {pend.length > 0 && (
+          <KPICard label="Pendientes Vinculación" value={String(pend.length)} sub={`Exposición: ${fmt$(pendEstim, true)}`} valueColor="yellow" borderColor="yellow" />
+        )}
       </div>
 
-      {/* Universo vinculado */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KPICard label="Disponible SICOP (vinculado)" value={fmt$(totalDispVinculado)} color="text-blue-700" />
-        <KPICard label="Estimación INPer (vinculada)" value={fmt$(totalEstimVinculada)} color="text-gray-700" />
-        <KPICard
-          label="Exposición pendiente (INPer)"
-          value={fmt$(totalEstimPendiente)}
-          sub="SICOP: NO DETERMINADO"
-          color="text-amber-700"
-        />
-      </div>
+      {/* ── Charts row ── */}
+      <div className="charts-grid">
+        {/* Bar */}
+        <div className="chart-card">
+          <div className="chart-title">Disponible SICOP Real vs. Estimación INPer</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={barData} margin={{ top: 4, right: 4, left: 8, bottom: 24 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2d45" />
+              <XAxis dataKey="name" tick={{ fill: '#5a6a88', fontSize: 11 }} />
+              <YAxis tickFormatter={v => fmt$(v, true)} tick={{ fill: '#5a6a88', fontSize: 10 }} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: unknown) => fmt$(Number(v))} />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                <Cell fill="#00d4ff" />
+                <Cell fill="#a855f7" />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Pie */}
-        <div className="card p-5">
-          <h3 className="text-sm font-semibold text-gray-600 mb-4">Distribución por Estatus (contratos)</h3>
-          <ResponsiveContainer width="100%" height={260}>
+        {/* Donut */}
+        <div className="chart-card">
+          <div className="chart-title">Distribución por Estatus de Suficiencia</div>
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ value }) => `${value}`}>
-                {pieData.map((entry) => (
-                  <Cell key={entry.name} fill={COLORS[entry.name] ?? '#888'} />
-                ))}
+              <Pie data={pieData} dataKey="value" cx="50%" cy="45%" outerRadius={85} innerRadius={50}>
+                {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
               </Pie>
-              <Tooltip formatter={(v: unknown, name: unknown) => [String(v) + ' contratos', String(name)]} />
-              <Legend
-                formatter={(value) => <span className="text-xs">{value}</span>}
-              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: unknown, n: unknown) => [String(v) + ' contratos', String(n)]} />
+              <Legend iconType="circle" iconSize={10} formatter={v => <span style={{ color: '#c4cdd8', fontSize: '0.78rem' }}>{v}</span>} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Bar */}
-        <div className="card p-5">
-          <h3 className="text-sm font-semibold text-gray-600 mb-4">Disponible SICOP vs Estimación INPer (universo vinculado, MXN)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={v => fmt$(v, true)} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: unknown) => fmt$(Number(v))} />
-              <Legend />
-              <Bar dataKey="disponible" name="Disponible SICOP" fill="#2563eb" />
-              <Bar dataKey="estimacion" name="Estimación INPer" fill="#9333ea" />
-            </BarChart>
+        {/* Horizontal ranking */}
+        <div className="chart-card">
+          <div className="chart-title">Top Rankings de Impacto — Mayor Faltante</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <HBarChart data={topFalta} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2d45" horizontal={false} />
+              <XAxis type="number" tickFormatter={v => fmt$(v, true)} tick={{ fill: '#5a6a88', fontSize: 10 }} />
+              <YAxis type="category" dataKey="contrato" tick={{ fill: '#c4cdd8', fontSize: 10 }} width={110} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: unknown) => fmt$(Number(v))} />
+              <HBar dataKey="saldo" fill="#ef4444" radius={[0, 4, 4, 0]} />
+            </HBarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Tabla resumen estatus */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-700">Resumen por Estatus</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="table-header">
-                <th className="px-4 py-3 text-left">Estatus</th>
-                <th className="px-4 py-3 text-right">Contratos</th>
-                <th className="px-4 py-3 text-right">Disponible SICOP</th>
-                <th className="px-4 py-3 text-right">Estimación INPer</th>
-                <th className="px-4 py-3 text-right">Saldo</th>
+      {/* ── Resumen tabla ── */}
+      <div className="section-pad">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Estatus</th>
+              <th className="num">Contratos</th>
+              <th className="num cyan">Disponible SICOP</th>
+              <th className="num purple">Estimación INPer</th>
+              <th className="num">Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resumen.map(r => (
+              <tr key={r.estatus}>
+                <td><StatusPill estatus={r.estatus} /></td>
+                <td className="num white" style={{ fontSize: '1rem', fontWeight: 800 }}>{r.contratos}</td>
+                <td className="num cyan">{r.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? <span style={{ color: 'var(--yellow)' }}>NO DETERMINADO</span> : fmt$(r.disponibleSICOP)}</td>
+                <td className="num purple">{fmt$(r.estimacionINPer)}</td>
+                <td className={`num ${r.saldo < 0 ? 'red' : r.saldo > 0 ? 'green' : 'yellow'}`} style={{ fontWeight: 800 }}>
+                  {r.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? <span style={{ color: 'var(--muted)' }}>—</span> : fmt$(r.saldo)}
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {resumen.map(r => (
-                <tr key={r.estatus} className="hover:bg-gray-50">
-                  <td className="px-4 py-3"><StatusBadge estatus={r.estatus} /></td>
-                  <td className="px-4 py-3 num font-semibold">{r.contratos}</td>
-                  <td className="px-4 py-3 num">
-                    {r.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? 'NO DETERMINADO' : fmt$(r.disponibleSICOP)}
-                  </td>
-                  <td className="px-4 py-3 num">{fmt$(r.estimacionINPer)}</td>
-                  <td className={`px-4 py-3 num font-semibold ${r.saldo < 0 ? 'text-red-600' : r.saldo > 0 ? 'text-green-600' : ''}`}>
-                    {r.estatus === 'PENDIENTE VINCULACIÓN SICOP' ? 'NO DETERMINAR' : fmt$(r.saldo)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Top Falta/Sobra */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card overflow-hidden">
-          <div className="px-5 py-3 border-b border-red-100 bg-red-50">
-            <h3 className="font-semibold text-red-700">Top Falta Recurso</h3>
-          </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="table-header">
-                <th className="px-3 py-2 text-left">Contrato</th>
-                <th className="px-3 py-2 text-right">Disponible</th>
-                <th className="px-3 py-2 text-right">Estimación</th>
-                <th className="px-3 py-2 text-right">Déficit</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {topFalta.map(c => (
-                <tr key={c.contrato} className="hover:bg-red-50">
-                  <td className="px-3 py-2 font-mono text-xs">{c.contrato}</td>
-                  <td className="px-3 py-2 num">{fmt$(c.disponibleSICOP, true)}</td>
-                  <td className="px-3 py-2 num">{fmt$(c.estimacionINPer, true)}</td>
-                  <td className="px-3 py-2 num text-red-700 font-bold">{fmt$(c.saldo, true)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="card overflow-hidden">
-          <div className="px-5 py-3 border-b border-blue-100 bg-blue-50">
-            <h3 className="font-semibold text-blue-700">Top Sobra Recurso</h3>
-          </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="table-header">
-                <th className="px-3 py-2 text-left">Contrato</th>
-                <th className="px-3 py-2 text-right">Disponible</th>
-                <th className="px-3 py-2 text-right">Estimación</th>
-                <th className="px-3 py-2 text-right">Excedente</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {topSobra.map(c => (
-                <tr key={c.contrato} className="hover:bg-blue-50">
-                  <td className="px-3 py-2 font-mono text-xs">{c.contrato}</td>
-                  <td className="px-3 py-2 num">{fmt$(c.disponibleSICOP, true)}</td>
-                  <td className="px-3 py-2 num">{fmt$(c.estimacionINPer, true)}</td>
-                  <td className="px-3 py-2 num text-blue-700 font-bold">+{fmt$(c.saldo, true)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
+}
+
+function StatusPill({ estatus }: { estatus: string }) {
+  const cls = estatus === 'SOBRA RECURSO' ? 'pill-green' : estatus === 'FALTA RECURSO' ? 'pill-red' : estatus === 'EQUILIBRADO' ? 'pill-yellow' : 'pill-gray';
+  return <span className={`status-pill ${cls}`}>{estatus}</span>;
 }
